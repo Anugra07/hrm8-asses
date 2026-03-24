@@ -43,6 +43,13 @@ interface RegisterResponse {
     message: string;
 }
 
+interface BootstrapRequest {
+    companyName: string;
+    workEmail: string;
+    password: string;
+    acceptTerms: boolean;
+}
+
 interface UserData {
     id: string;
     email: string;
@@ -111,6 +118,13 @@ class ApiClient {
 
     async register(data: RegisterRequest): Promise<ApiResponse<RegisterResponse>> {
         return this.request<RegisterResponse>('/api/assess/register', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async bootstrapSignup(data: BootstrapRequest): Promise<ApiResponse<RegisterResponse>> {
+        return this.request<RegisterResponse>('/api/assess/signup/bootstrap', {
             method: 'POST',
             body: JSON.stringify(data),
         });
@@ -361,6 +375,50 @@ class ApiClient {
         });
     }
 
+    async upsertAssessDraftJob(jobId: string, payload: {
+        title: string;
+        description?: string;
+        department?: string;
+        location?: string;
+        employmentType?: string;
+        workArrangement?: string;
+        numberOfVacancies?: number;
+    }): Promise<ApiResponse<any>> {
+        return this.request(`/api/assess/jobs/${jobId}/draft`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async saveAssessPackage(jobId: string, payload: {
+        packId: string;
+        selectedAssessments: Array<{
+            assessmentCatalogId: string;
+            name: string;
+            questionType: string;
+            recommendedReason?: string;
+        }>;
+    }): Promise<ApiResponse<any>> {
+        return this.request(`/api/assess/jobs/${jobId}/package`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async bulkUpsertAssessCandidates(jobId: string, payload: {
+        candidates: Array<{
+            firstName: string;
+            lastName: string;
+            email: string;
+            mobile?: string;
+        }>;
+    }): Promise<ApiResponse<any>> {
+        return this.request(`/api/assess/jobs/${jobId}/candidates/bulk`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    }
+
     async getPricingPreview(jobId: string, payload: {
         packageId: string;
         candidateCount: number;
@@ -386,10 +444,17 @@ class ApiClient {
         candidateCount?: number;
         orderId?: string;
         checkoutSessionId?: string;
+        paymentAttemptId?: string;
     }): Promise<ApiResponse<any>> {
         return this.request(`/api/assess/jobs/${jobId}/activate`, {
             method: 'POST',
             body: JSON.stringify(payload),
+        });
+    }
+
+    async getBillingPaymentStatus(paymentAttemptId: string): Promise<ApiResponse<any>> {
+        return this.request(`/api/billing/payments/${paymentAttemptId}`, {
+            method: 'GET',
         });
     }
 
@@ -429,4 +494,4 @@ class ApiClient {
 
 export const apiClient = new ApiClient(API_BASE_URL);
 
-export type { RegisterRequest, RegisterResponse, UserData, ApiResponse };
+export type { RegisterRequest, RegisterResponse, BootstrapRequest, UserData, ApiResponse };

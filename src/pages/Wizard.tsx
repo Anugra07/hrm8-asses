@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiClient } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -59,6 +59,8 @@ import { assessments, getAssessmentRecommendations } from '@/data/assessments';
 import { bundles, getBundleAssessments, getRecommendedBundle } from '@/data/bundles';
 import { assessmentPacks, questionTypes, type AssessmentPack } from '@/data/packs';
 import type { RecommendationResult } from '@/types/assessment';
+
+const ASSESS_PENDING_CHECKOUT_KEY = 'hrm8_assess_pending_checkout_v1';
 
 const steps = [
   { id: 1, title: 'Company', icon: Building2 },
@@ -631,19 +633,69 @@ const Wizard = () => {
   };
 
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isFinalizingPayment, setIsFinalizingPayment] = useState(false);
+  const paymentFinalizeInFlightRef = useRef(false);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const finalizeAndActivateAssessFlow = async (jobId: string, pack: AssessmentPack) => {
-    const assessmentsToCreate = configuredAssessments
+  const createAssessCheckoutFlow = async (jobId: string, pack: AssessmentPack) => {
+    const normalizeCatalogId = (name: string, index: number) => {
+      const normalized = name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      return normalized || `assessment-${index + 1}`;
+    };
+
+    const selectedAssessments = configuredAssessments
       .slice(0, pack.assessmentCount)
-      .map(a => ({
+      .map((a, index) => ({
+        assessmentCatalogId: normalizeCatalogId(a.name, index),
         name: a.name,
-        type: 'ASSESSMENT',
-        questionType: a.questionType
+        questionType: a.questionType || 'multiple-choice',
+        recommendedReason: a.reason,
       }));
 
-    await apiClient.finalizeJob(jobId, assessmentsToCreate);
+    if (selectedAssessments.length === 0) {
+      throw new Error('At least one assessment must be selected for the package');
+    }
+
+    const draftRes = await apiClient.upsertAssessDraftJob(jobId, {
+      title: wizardData.position.title || 'Untitled Role',
+      description: wizardData.position.responsibilities || '',
+      department: wizardData.position.department,
+      location: wizardData.position.location || 'Remote',
+      employmentType: wizardData.position.employmentType || 'full-time',
+      workArrangement: wizardData.position.workArrangement || 'remote',
+      numberOfVacancies: wizardData.position.vacancies || 1,
+    });
+    if (!draftRes.success) {
+      throw new Error(draftRes.error || 'Unable to save draft job details');
+    }
+
+    const packageRes = await apiClient.saveAssessPackage(jobId, {
+      packId: pack.id,
+      selectedAssessments,
+    });
+    if (!packageRes.success) {
+      throw new Error(packageRes.error || 'Unable to save package selection');
+    }
+
+    const candidatePayload = wizardData.candidates.map((candidate) => ({
+      firstName: candidate.firstName,
+      lastName: candidate.lastName,
+      email: candidate.email,
+      mobile: candidate.mobile,
+    }));
+    if (candidatePayload.length > 0) {
+      const candidateRes = await apiClient.bulkUpsertAssessCandidates(jobId, {
+        candidates: candidatePayload,
+      });
+      if (!candidateRes.success) {
+        throw new Error(candidateRes.error || 'Unable to save candidates');
+      }
+    }
 
     const candidateCount = Math.max(1, wizardData.candidates.length);
     const pricingRes = await apiClient.getPricingPreview(jobId, {
@@ -662,15 +714,54 @@ const Wizard = () => {
       throw new Error(checkoutRes.error || 'Unable to initialize checkout');
     }
 
-    const activationRes = await apiClient.activateAssessJob(jobId, {
+    const paymentAttemptId = checkoutRes.data?.paymentAttemptId || checkoutRes.data?.checkoutSessionId;
+    const redirectUrl = checkoutRes.data?.redirectUrl;
+    if (!paymentAttemptId || !redirectUrl) {
+      throw new Error('Checkout response is missing payment reference or redirect URL');
+    }
+
+    return {
+      jobId,
       packageId: pack.id,
       candidateCount,
-      orderId: `assess_order_${Date.now()}`,
-      checkoutSessionId: checkoutRes.data?.checkoutSessionId,
-    });
-    if (!activationRes.success) {
-      throw new Error(activationRes.error || 'Unable to activate assess job');
+      paymentAttemptId,
+      redirectUrl,
+    };
+  };
+
+  const savePendingCheckout = (payload: {
+    jobId: string;
+    packageId: string;
+    candidateCount: number;
+    paymentAttemptId: string;
+  }) => {
+    localStorage.setItem(ASSESS_PENDING_CHECKOUT_KEY, JSON.stringify({
+      ...payload,
+      createdAt: new Date().toISOString(),
+    }));
+  };
+
+  const readPendingCheckout = (): null | {
+    jobId: string;
+    packageId: string;
+    candidateCount: number;
+    paymentAttemptId: string;
+    createdAt?: string;
+  } => {
+    const raw = localStorage.getItem(ASSESS_PENDING_CHECKOUT_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      if (!parsed.jobId || !parsed.packageId || !parsed.paymentAttemptId) return null;
+      return parsed;
+    } catch {
+      return null;
     }
+  };
+
+  const clearPendingCheckout = () => {
+    localStorage.removeItem(ASSESS_PENDING_CHECKOUT_KEY);
   };
 
   const handlePayment = async () => {
@@ -685,13 +776,9 @@ const Wizard = () => {
       // If already authenticated, just create the job and proceed
       if (isAuthenticated) {
           if (existingJobId && selectedPack) {
-               await finalizeAndActivateAssessFlow(existingJobId, selectedPack);
-
-               toast({
-                   title: 'Success!',
-                   description: 'Assessment package activated successfully.',
-               });
-               navigate('/dashboard');
+               const checkout = await createAssessCheckoutFlow(existingJobId, selectedPack);
+               savePendingCheckout(checkout);
+               window.location.href = checkout.redirectUrl;
                return;
           }
 
@@ -709,32 +796,41 @@ const Wizard = () => {
           });
           
           if (jobRes.success && jobRes.data && selectedPack) {
-              await finalizeAndActivateAssessFlow(jobRes.data.jobId, selectedPack);
+              const checkout = await createAssessCheckoutFlow(jobRes.data.jobId, selectedPack);
+              savePendingCheckout(checkout);
+              window.location.href = checkout.redirectUrl;
+              return;
           }
 
           toast({
               title: 'Success!',
               description: 'Job created and package activated successfully.',
           });
-          navigate('/dashboard'); // Changed from /success to /dashboard per typical flow
+          navigate('/dashboard'); // fallback if checkout flow did not redirect
           return;
       }
 
       // First register company and user with backend
-      const response = await apiClient.register({
+      if (!wizardData.company.name?.trim()) {
+        throw new Error('Company name is required');
+      }
+      if (!wizardData.user.email?.trim()) {
+        throw new Error('Work email is required');
+      }
+      if (!wizardData.user.password) {
+        throw new Error('Password is required');
+      }
+      if (wizardData.user.password !== wizardData.user.confirmPassword) {
+        throw new Error('Password and confirm password must match');
+      }
+      if (!authorizedConfirmed) {
+        throw new Error('Please confirm authorization to continue');
+      }
+
+      const response = await apiClient.bootstrapSignup({
         companyName: wizardData.company.name || '',
-        companyWebsite: wizardData.company.website || '',
-        country: wizardData.company.country || '',
-        industry: wizardData.company.industry || '',
-        companySize: wizardData.company.size,
-        billingEmail: wizardData.company.billingEmail,
-        firstName: wizardData.user.firstName || '',
-        lastName: wizardData.user.lastName || '',
-        email: wizardData.user.email || '',
+        workEmail: wizardData.user.email || '',
         password: wizardData.user.password || '',
-        mobile: wizardData.user.mobile,
-        mobileCountryCode: wizardData.user.mobileCountryCode,
-        jobTitle: wizardData.user.jobTitle,
         acceptTerms: authorizedConfirmed,
       });
 
@@ -768,7 +864,10 @@ const Wizard = () => {
       });
 
       if (jobRes.success && jobRes.data && selectedPack) {
-          await finalizeAndActivateAssessFlow(jobRes.data.jobId, selectedPack);
+          const checkout = await createAssessCheckoutFlow(jobRes.data.jobId, selectedPack);
+          savePendingCheckout(checkout);
+          window.location.href = checkout.redirectUrl;
+          return;
       }
       
       // Registration successful, proceed to payment/success
@@ -791,6 +890,89 @@ const Wizard = () => {
       setIsRegistering(false);
     }
   };
+
+  useEffect(() => {
+    const assessPaymentState = searchParams.get('assess_payment') || searchParams.get('payment_status');
+    const isSuccess = assessPaymentState === 'success';
+    const isCancel = assessPaymentState === 'cancel' || assessPaymentState === 'canceled';
+
+    if (isCancel) {
+      clearPendingCheckout();
+      toast({
+        title: 'Payment canceled',
+        description: 'You can resume checkout from this wizard.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!isSuccess || paymentFinalizeInFlightRef.current) return;
+    const pending = readPendingCheckout();
+    if (!pending) return;
+
+    const finalize = async () => {
+      paymentFinalizeInFlightRef.current = true;
+      setIsFinalizingPayment(true);
+      setRegistrationError(null);
+
+      try {
+        const paymentAttemptId =
+          searchParams.get('payment_attempt_id') ||
+          pending.paymentAttemptId;
+
+        let status = 'PENDING';
+        for (let i = 0; i < 12; i += 1) {
+          const paymentRes = await apiClient.getBillingPaymentStatus(paymentAttemptId);
+          if (!paymentRes.success) {
+            throw new Error(paymentRes.error || 'Failed to verify payment status');
+          }
+
+          status = String(paymentRes.data?.status || 'PENDING').toUpperCase();
+          if (status === 'SUCCEEDED') break;
+          if (status === 'FAILED' || status === 'REFUNDED') {
+            throw new Error(`Payment ${status.toLowerCase()}. Please try checkout again.`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+
+        if (status !== 'SUCCEEDED') {
+          throw new Error('Payment confirmation is still pending. Please retry in a few moments.');
+        }
+
+        const activationRes = await apiClient.activateAssessJob(pending.jobId, {
+          packageId: pending.packageId,
+          candidateCount: pending.candidateCount,
+          paymentAttemptId,
+          checkoutSessionId: paymentAttemptId,
+          orderId: `assess_order_${Date.now()}`,
+        });
+
+        if (!activationRes.success) {
+          throw new Error(activationRes.error || 'Unable to activate assess job after payment');
+        }
+
+        clearPendingCheckout();
+        toast({
+          title: 'Success!',
+          description: 'Payment confirmed and assessment package activated.',
+        });
+        navigate('/dashboard');
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to finalize payment';
+        setRegistrationError(message);
+        toast({
+          title: 'Payment verification pending',
+          description: message,
+          variant: 'destructive',
+        });
+      } finally {
+        setIsFinalizingPayment(false);
+        paymentFinalizeInFlightRef.current = false;
+      }
+    };
+
+    void finalize();
+  }, [searchParams, navigate, toast]);
 
   const [configuredAssessments, setConfiguredAssessments] = useState<Array<{ name: string; questionType: string; reason?: string }>>([]);
 
@@ -909,6 +1091,22 @@ const Wizard = () => {
   }, [selectedPack, aiRecommendations]);
 
   const canProceed = () => {
+    if (currentStep === 1) {
+      return Boolean(wizardData.company.name?.trim());
+    }
+
+    if (currentStep === 2) {
+      if (isAuthenticated) return true;
+      const email = wizardData.user.email?.trim();
+      const password = wizardData.user.password || '';
+      const confirmPassword = wizardData.user.confirmPassword || '';
+      return Boolean(email && password && confirmPassword && password === confirmPassword && authorizedConfirmed);
+    }
+
+    if (currentStep === 3) {
+      return Boolean(wizardData.position.title?.trim());
+    }
+
     return true;
   };
 
@@ -2162,13 +2360,13 @@ const Wizard = () => {
               <Button
                 type="button"
                 onClick={handlePayment}
-                disabled={!candidateConsentConfirmed || isRegistering || wizardData.candidates.length === 0}
+                disabled={!candidateConsentConfirmed || isRegistering || isFinalizingPayment || wizardData.candidates.length === 0}
                 className="hero-gradient shadow-glow ml-auto"
               >
-                {isRegistering ? (
+                {isRegistering || isFinalizingPayment ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Processing...
+                    {isFinalizingPayment ? 'Verifying Payment...' : 'Processing...'}
                   </>
                 ) : (
                   <>
