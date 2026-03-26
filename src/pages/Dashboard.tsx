@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import logoDark from '@/assets/logo-dark.png';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -92,7 +92,7 @@ import { format, subDays, subMonths } from 'date-fns';
 import { toast } from 'sonner';
 import { assessments } from '@/data/assessments';
 import { bundles as standardBundles, getBundleAssessments } from '@/data/bundles';
-import { roles as initialRoles, getRoleCandidateStats } from '@/data/roles';
+import { getRoleCandidateStats } from '@/data/roles';
 import { Assessment, CustomBundle, Role, RoleCandidate, CandidateAssessmentResult, RoleCandidateStatus, RoleStatus } from '@/types/assessment';
 import { apiClient } from '@/lib/api';
 import { AddCandidateDialog } from '@/components/dashboard/AddCandidateDialog';
@@ -143,74 +143,7 @@ interface Invoice {
   items: InvoiceItem[];
 }
 
-// Mock invoice data
-const mockInvoices: Invoice[] = [
-  {
-    id: '1',
-    invoiceNumber: 'INV-2024-001',
-    date: new Date('2024-01-15'),
-    dueDate: new Date('2024-01-30'),
-    amount: 499.00,
-    status: 'paid',
-    description: 'Software Engineer Assessment Bundle',
-    items: [
-      { name: 'Cognitive Ability Test', quantity: 5, price: 45 },
-      { name: 'Technical Assessment', quantity: 5, price: 55 }
-    ]
-  },
-  {
-    id: '2',
-    invoiceNumber: 'INV-2024-002',
-    date: new Date('2024-02-10'),
-    dueDate: new Date('2024-02-25'),
-    amount: 275.00,
-    status: 'paid',
-    description: 'Customer Service Role Pack',
-    items: [
-      { name: 'Personality Assessment', quantity: 3, price: 50 },
-      { name: 'Communication Skills Test', quantity: 3, price: 42 }
-    ]
-  },
-  {
-    id: '3',
-    invoiceNumber: 'INV-2024-003',
-    date: new Date('2024-03-05'),
-    dueDate: new Date('2024-03-20'),
-    amount: 650.00,
-    status: 'paid',
-    description: 'Leadership Assessment Suite',
-    items: [
-      { name: 'Leadership Aptitude Test', quantity: 4, price: 75 },
-      { name: 'Strategic Thinking Assessment', quantity: 4, price: 88 }
-    ]
-  },
-  {
-    id: '4',
-    invoiceNumber: 'INV-2024-004',
-    date: subDays(new Date(), 15),
-    dueDate: subDays(new Date(), 1),
-    amount: 320.00,
-    status: 'pending',
-    description: 'Sales Team Evaluation',
-    items: [
-      { name: 'Sales Aptitude Test', quantity: 4, price: 55 },
-      { name: 'Negotiation Skills Assessment', quantity: 4, price: 25 }
-    ]
-  },
-  {
-    id: '5',
-    invoiceNumber: 'INV-2024-005',
-    date: subDays(new Date(), 45),
-    dueDate: subDays(new Date(), 30),
-    amount: 180.00,
-    status: 'overdue',
-    description: 'Marketing Analyst Bundle',
-    items: [
-      { name: 'Analytical Reasoning Test', quantity: 2, price: 60 },
-      { name: 'Creative Thinking Assessment', quantity: 2, price: 30 }
-    ]
-  },
-];
+const emptyInvoices: Invoice[] = [];
 
 // Invoice status colors
 const invoiceStatusColors: Record<Invoice['status'], string> = {
@@ -237,82 +170,7 @@ interface TeamMember {
   lastActiveAt?: Date;
 }
 
-// Mock team members data
-const mockTeamMembers: TeamMember[] = [
-  {
-    id: 'user-1',
-    firstName: 'Sarah',
-    lastName: 'Johnson',
-    email: 'sarah.johnson@company.com',
-    phone: '2 9876 5432',
-    phoneCountryCode: '+61',
-    positionTitle: 'Head of HR',
-    role: 'admin',
-    status: 'active',
-    joinedAt: new Date('2023-06-15'),
-    lastActiveAt: new Date()
-  },
-  {
-    id: 'user-2',
-    firstName: 'Michael',
-    lastName: 'Chen',
-    email: 'michael.chen@company.com',
-    phone: '2 1234 5678',
-    phoneCountryCode: '+61',
-    positionTitle: 'Hiring Manager',
-    role: 'manager',
-    status: 'active',
-    joinedAt: new Date('2023-08-20'),
-    lastActiveAt: subDays(new Date(), 1)
-  },
-  {
-    id: 'user-3',
-    firstName: 'Emily',
-    lastName: 'Rodriguez',
-    email: 'emily.rodriguez@company.com',
-    phone: '4 0000 1111',
-    phoneCountryCode: '+61',
-    positionTitle: 'Senior Recruiter',
-    role: 'recruiter',
-    status: 'active',
-    joinedAt: new Date('2024-01-10'),
-    lastActiveAt: subDays(new Date(), 3)
-  },
-  {
-    id: 'user-4',
-    firstName: 'David',
-    lastName: 'Kim',
-    email: 'david.kim@company.com',
-    phone: '555 123 4567',
-    phoneCountryCode: '+1',
-    positionTitle: 'HR Coordinator',
-    role: 'viewer',
-    status: 'pending',
-    invitedAt: subDays(new Date(), 2)
-  },
-  {
-    id: 'user-5',
-    firstName: 'Jessica',
-    lastName: 'Patel',
-    email: 'jessica.patel@company.com',
-    phone: '20 7946 0958',
-    phoneCountryCode: '+44',
-    positionTitle: 'Talent Acquisition Specialist',
-    role: 'recruiter',
-    status: 'deactivated',
-    joinedAt: new Date('2023-05-01'),
-    lastActiveAt: subMonths(new Date(), 2)
-  },
-  {
-    id: 'user-6',
-    firstName: '',
-    lastName: '',
-    email: 'new.hire@company.com',
-    role: 'recruiter',
-    status: 'pending',
-    invitedAt: subDays(new Date(), 5)
-  },
-];
+const emptyTeamMembers: TeamMember[] = [];
 
 // Helper functions for date extraction
 const getEarliestAssignedDate = (results?: CandidateAssessmentResult[]) => {
@@ -325,6 +183,89 @@ const getLatestCompletedDate = (results?: CandidateAssessmentResult[]) => {
   if (!results?.length) return null;
   const dates = results.map(r => r.completedAt).filter(Boolean) as Date[];
   return dates.length ? new Date(Math.max(...dates.map(d => new Date(d).getTime()))) : null;
+};
+
+const mapApiJobToRole = (job: any): Role => {
+  if (job?.position && Array.isArray(job?.candidates) && Array.isArray(job?.assessments)) {
+    const normalizedStatus = String(job.status || 'active').toLowerCase();
+    return {
+      ...job,
+      candidates: job.candidates.map((candidate: any) => ({
+        ...candidate,
+        assessmentResults: (candidate.assessmentResults || []).map((result: any) => ({
+          ...result,
+          assignedAt: result.assignedAt ? new Date(result.assignedAt) : undefined,
+          updatedAt: result.updatedAt ? new Date(result.updatedAt) : undefined,
+          completedAt: result.completedAt ? new Date(result.completedAt) : undefined,
+        })),
+      })),
+      status: (normalizedStatus === 'completed'
+        ? 'completed'
+        : normalizedStatus === 'archived'
+          ? 'archived'
+          : 'active') as RoleStatus,
+      createdAt: new Date(job.createdAt || job.created_at || Date.now()),
+    };
+  }
+
+  const candidates = (job.candidates || job.applications || []).map((c: any) => ({
+    id: c.id || c.candidate_id,
+    firstName: c.firstName || c.candidate?.first_name || c.candidate?.firstName || '',
+    lastName: c.lastName || c.candidate?.last_name || c.candidate?.lastName || '',
+    email: c.email || c.candidate?.email || '',
+    status: (String(c.status || 'invited').toLowerCase()) as RoleCandidateStatus,
+    stage: c.stage || 'NEW_APPLICATION',
+    resumeUrl: c.resumeUrl || c.resume_url,
+    assessmentResults: (c.assessmentResults || c.application_round_progress || []).map((r: any) => ({
+      assessmentId: r.assessmentId || r.job_round_id || r.assessment_id || '',
+      assessmentName: r.assessmentName || r.job_round?.name || 'Assessment',
+      category: 'aptitude' as const,
+      status: (
+        String(r.status || (r.completed ? 'completed' : 'in_progress')).toLowerCase()
+      ) as 'pending' | 'in_progress' | 'completed',
+      assignedAt: r.assignedAt ? new Date(r.assignedAt) : (r.created_at ? new Date(r.created_at) : new Date()),
+      updatedAt: r.updatedAt ? new Date(r.updatedAt) : (r.updated_at ? new Date(r.updated_at) : undefined),
+      completedAt: r.completedAt ? new Date(r.completedAt) : (r.completed_at ? new Date(r.completed_at) : undefined),
+    })),
+  }));
+
+  const assessmentsMapped = (job.assessments || job.job_round || [])
+    .filter((a: any) => !a.is_fixed && (a.type === 'ASSESSMENT' || a.category === 'assessment'))
+    .map((a: any) => ({
+      id: a.id,
+      name: a.name,
+      description: a.description || '',
+      category: 'aptitude',
+      duration: 30,
+      price: 0,
+      creditCost: 0,
+      useCases: [],
+    }));
+
+  return {
+    id: job.id,
+    position: {
+      id: job.position?.id || job.id,
+      title: job.position?.title || job.title || 'Untitled Position',
+      location: job.position?.location || job.location || 'Remote',
+      employmentType: (job.position?.employmentType || job.employment_type || 'full-time')
+        .toLowerCase()
+        .replace('_', '-') as 'full-time' | 'part-time' | 'contract' | 'casual',
+      seniority: (job.position?.seniority || job.experienceLevel || 'mid') as 'entry' | 'mid' | 'senior' | 'manager' | 'executive',
+      skills: job.position?.skills || job.requirements || [],
+      responsibilities: job.position?.responsibilities || (Array.isArray(job.responsibilities) ? job.responsibilities.join('\n') : ''),
+    },
+    assessments: assessmentsMapped as Assessment[],
+    candidates,
+    status: ((() => {
+      const status = String(job.status || 'active').toLowerCase();
+      if (status === 'completed') return 'completed';
+      if (status === 'archived' || status === 'draft') return 'archived';
+      return 'active';
+    })()) as RoleStatus,
+    createdAt: new Date(job.createdAt || job.created_at || Date.now()),
+    orderId: job.orderId || `ORD-${String(job.id).slice(0, 8).toUpperCase()}`,
+  };
 };
 
 // Sortable Header Component
@@ -371,7 +312,7 @@ const Dashboard = () => {
   const [dashboardPeriod, setDashboardPeriod] = useState('30d');
 
   const [settingsSubTab, setSettingsSubTab] = useState<'company' | 'credits'>('company');
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const [isUpgradingToAts, setIsUpgradingToAts] = useState(false);
 
   const handleUpgradeToAts = async () => {
@@ -442,7 +383,78 @@ const Dashboard = () => {
   const [assessmentReviewDrawerOpen, setAssessmentReviewDrawerOpen] = useState(false);
   const [selectedAssessmentForReview, setSelectedAssessmentForReview] = useState<{ id: string; name: string } | null>(null);
 
-  // Fetch real jobs and credits on mount
+  const fetchJobs = useCallback(async () => {
+    try {
+      const response = await apiClient.getMyJobs();
+      if (response.success && response.data) {
+        setRoles(response.data.map((job) => mapApiJobToRole(job)));
+      }
+    } catch (error) {
+      console.error('Failed to fetch jobs:', error);
+      toast.error('Failed to load roles');
+    } finally {
+      setRolesLoading(false);
+    }
+  }, []);
+
+  const fetchDashboardMeta = useCallback(async () => {
+    try {
+      const meta = await apiClient.getAssessDashboardMeta();
+      if (!meta.success || !meta.data) return;
+
+      if (meta.data.currentUser) {
+        setCurrentUser({
+          id: meta.data.currentUser.id,
+          firstName: meta.data.currentUser.firstName || '',
+          lastName: meta.data.currentUser.lastName || '',
+          email: meta.data.currentUser.email,
+          role: (String(meta.data.currentUser.role || 'admin').toLowerCase()) as 'admin' | 'manager' | 'recruiter' | 'viewer',
+          phone: meta.data.currentUser.phone || '',
+          phoneCountryCode: meta.data.currentUser.phoneCountryCode || '+61',
+          positionTitle: meta.data.currentUser.positionTitle || '',
+          joinedAt: meta.data.currentUser.joinedAt ? new Date(meta.data.currentUser.joinedAt) : undefined,
+          lastActiveAt: meta.data.currentUser.lastActiveAt ? new Date(meta.data.currentUser.lastActiveAt) : undefined,
+        });
+      }
+
+      setTeamMembers(
+        (meta.data.teamMembers || []).map((member: any) => ({
+          ...member,
+          invitedAt: member.invitedAt ? new Date(member.invitedAt) : undefined,
+          joinedAt: member.joinedAt ? new Date(member.joinedAt) : undefined,
+          lastActiveAt: member.lastActiveAt ? new Date(member.lastActiveAt) : undefined,
+        }))
+      );
+
+      setInvoices(
+        (meta.data.invoices || []).map((invoice: any) => ({
+          id: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          date: new Date(invoice.date),
+          dueDate: new Date(invoice.dueDate),
+          amount: Number(invoice.amount || 0),
+          status: invoice.status,
+          description: invoice.description || 'Assessment purchase',
+          items: Array.isArray(invoice.items) ? invoice.items : [],
+        }))
+      );
+
+      setProfileSessions(
+        (meta.data.sessions || []).map((session: any) => ({
+          id: session.id,
+          device: session.isCurrent ? 'Current Browser Session' : 'Browser Session',
+          location: 'Unknown',
+          lastActive: session.lastActivity ? new Date(session.lastActivity) : new Date(),
+          isCurrent: Boolean(session.isCurrent),
+        }))
+      );
+      setCompanySettingsProfile(meta.data.companyProfile || null);
+    } catch (error) {
+      console.error('Failed to fetch dashboard metadata:', error);
+    }
+  }, []);
+
+  // Fetch dashboard data on mount
   useEffect(() => {
     const fetchCredits = async () => {
       try {
@@ -454,61 +466,9 @@ const Dashboard = () => {
         console.error('Failed to fetch credits:', error);
       }
     };
-    
-    fetchCredits();
 
-    const fetchJobs = async () => {
-      try {
-        const response = await apiClient.getMyJobs();
-        if (response.success && response.data) {
-          // Transform API data to Role format
-          const apiRoles: Role[] = response.data.map((job) => ({
-            id: job.id,
-            position: {
-              id: job.position?.id || job.id,
-              title: job.position?.title || 'Untitled Position',
-              location: job.position?.location || '',
-              employmentType: (job.position?.employmentType || 'full-time') as 'full-time' | 'part-time' | 'contract' | 'casual',
-              seniority: (job.position?.seniority || 'mid') as 'entry' | 'mid' | 'senior' | 'manager' | 'executive',
-              skills: job.position?.skills || [],
-              responsibilities: job.position?.responsibilities || '',
-            },
-            assessments: job.assessments as Assessment[] || [],
-            candidates: (job.candidates || []).map((c) => ({
-              id: c.id,
-              firstName: c.firstName,
-              lastName: c.lastName,
-              email: c.email,
-              status: (c.status?.toLowerCase() || 'invited') as RoleCandidateStatus,
-              stage: c.stage || 'NEW_APPLICATION',
-              resumeUrl: c.resumeUrl,
-              assessmentResults: c.assessmentResults?.map((r) => ({
-                assessmentId: r.assessmentId,
-                assessmentName: r.assessmentName,
-                category: 'aptitude' as const,
-                status: r.status as 'pending' | 'in_progress' | 'completed',
-                assignedAt: r.assignedAt ? new Date(r.assignedAt) : new Date(),
-                updatedAt: r.completedAt ? new Date(r.completedAt) : undefined,
-                completedAt: r.completedAt ? new Date(r.completedAt) : undefined,
-              })),
-            })),
-            status: (job.status?.toLowerCase() || 'active') as RoleStatus,
-            createdAt: new Date(job.createdAt),
-            orderId: job.orderId,
-          }));
-          
-          setRoles(apiRoles);
-        }
-      } catch (error) {
-        console.error('Failed to fetch jobs:', error);
-        toast.error('Failed to load roles');
-      } finally {
-        setRolesLoading(false);
-      }
-    };
-
-    fetchJobs();
-  }, []);
+    void Promise.all([fetchCredits(), fetchJobs(), fetchDashboardMeta()]);
+  }, [fetchJobs, fetchDashboardMeta]);
   
   // Assign assessment dialog state
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
@@ -530,6 +490,7 @@ const Dashboard = () => {
   const [selectedRoleCandidateIds, setSelectedRoleCandidateIds] = useState<Set<string>>(new Set());
 
   // Billing state
+  const [invoices, setInvoices] = useState<Invoice[]>(emptyInvoices);
   const [billingSearchQuery, setBillingSearchQuery] = useState('');
   const [billingStatusFilter, setBillingStatusFilter] = useState<'all' | 'paid' | 'pending' | 'overdue'>('all');
   const [billingSortField, setBillingSortField] = useState<BillingSortField>('date');
@@ -538,7 +499,7 @@ const Dashboard = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
   // Team state
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(mockTeamMembers);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(emptyTeamMembers);
   const [usersSearchQuery, setUsersSearchQuery] = useState('');
   const [usersStatusFilter, setUsersStatusFilter] = useState<'all' | 'active' | 'pending' | 'deactivated'>('all');
   const [addonCheckSearch, setAddonCheckSearch] = useState('');
@@ -562,6 +523,14 @@ const Dashboard = () => {
 
   // Profile state
   const [profileSubTab, setProfileSubTab] = useState<ProfileSubTab>('personal');
+  const [profileSessions, setProfileSessions] = useState<Array<{
+    id: string;
+    device: string;
+    location: string;
+    lastActive: Date;
+    isCurrent: boolean;
+  }>>([]);
+  const [companySettingsProfile, setCompanySettingsProfile] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<{
     id: string;
     firstName: string;
@@ -575,16 +544,12 @@ const Dashboard = () => {
     joinedAt?: Date;
     lastActiveAt?: Date;
   }>({
-    id: 'user-1',
-    firstName: 'Sarah',
-    lastName: 'Johnson',
-    email: 'sarah.johnson@company.com',
+    id: user?.id || '',
+    firstName: user?.name?.split(' ')[0] || '',
+    lastName: user?.name?.split(' ').slice(1).join(' ') || '',
+    email: user?.email || '',
     phoneCountryCode: '+61',
-    phone: '2 9876 5432',
-    positionTitle: 'Head of HR',
-    role: 'admin',
-    joinedAt: new Date('2023-06-15'),
-    lastActiveAt: new Date()
+    role: ((user?.role || 'admin').toLowerCase() as 'admin' | 'manager' | 'recruiter' | 'viewer'),
   });
 
   const [assessmentSearch, setAssessmentSearch] = useState('');
@@ -825,24 +790,19 @@ const Dashboard = () => {
     };
   }, [roles]);
 
-  // Mock recent assessment orders (per-candidate rows)
-  const recentOrders = [
-    { id: 'ORD-001', role: 'Software Engineer', candidateName: 'John Doe', date: '2025-01-17', status: 'in_progress' },
-    { id: 'ORD-002', role: 'Software Engineer', candidateName: 'Jane Smith', date: '2025-01-17', status: 'in_progress' },
-    { id: 'ORD-003', role: 'Software Engineer', candidateName: 'Alex Chen', date: '2025-01-16', status: 'invited' },
-    { id: 'ORD-004', role: 'Product Manager', candidateName: 'Mike Johnson', date: '2025-01-15', status: 'completed' },
-    { id: 'ORD-005', role: 'Product Manager', candidateName: 'Emma Williams', date: '2025-01-15', status: 'completed' },
-    { id: 'ORD-006', role: 'Sales Representative', candidateName: 'Sarah Wilson', date: '2025-01-14', status: 'completed' },
-    { id: 'ORD-007', role: 'Sales Representative', candidateName: 'David Brown', date: '2025-01-14', status: 'completed' },
-    { id: 'ORD-008', role: 'Data Analyst', candidateName: 'Olivia Garcia', date: '2025-01-12', status: 'in_progress' },
-    { id: 'ORD-009', role: 'UX Designer', candidateName: 'Noah Lee', date: '2025-01-10', status: 'invited' },
-    { id: 'ORD-010', role: 'Sales Representative', candidateName: 'Rachel Martinez', date: '2025-01-13', status: 'in_progress' },
-    { id: 'ORD-011', role: 'Data Analyst', candidateName: 'Tom Harris', date: '2025-01-11', status: 'completed' },
-    { id: 'ORD-012', role: 'Data Analyst', candidateName: 'Amy Zhang', date: '2025-01-10', status: 'invited' },
-    { id: 'ORD-013', role: 'UX Designer', candidateName: 'Chris Palmer', date: '2025-01-09', status: 'completed' },
-    { id: 'ORD-014', role: 'Software Engineer', candidateName: 'Diana Ross', date: '2025-01-08', status: 'completed' },
-    { id: 'ORD-015', role: 'Sales Representative', candidateName: 'Kevin Nguyen', date: '2025-01-07', status: 'completed' },
-  ];
+  const recentOrders = useMemo(() => {
+    return roles
+      .flatMap((role) =>
+        role.candidates.map((candidate) => ({
+          id: `${role.id}-${candidate.id}`,
+          role: role.position.title,
+          candidateName: `${candidate.firstName} ${candidate.lastName}`.trim(),
+          date: format(role.createdAt, 'yyyy-MM-dd'),
+          status: candidate.status,
+        }))
+      )
+      .slice(0, 20);
+  }, [roles]);
   
   const filteredAssessments = useMemo(() => {
     return assessments.filter(assessment => {
@@ -857,7 +817,7 @@ const Dashboard = () => {
   // Filtered invoices with sorting
   const filteredInvoices = useMemo(() => {
     const now = new Date();
-    return mockInvoices
+    return invoices
       .filter(invoice => {
         // Status filter
         if (billingStatusFilter !== 'all' && invoice.status !== billingStatusFilter) return false;
@@ -902,18 +862,18 @@ const Dashboard = () => {
         
         return billingSortDirection === 'desc' ? -comparison : comparison;
       });
-  }, [billingSearchQuery, billingStatusFilter, billingDateRange, billingSortField, billingSortDirection]);
+  }, [invoices, billingSearchQuery, billingStatusFilter, billingDateRange, billingSortField, billingSortDirection]);
 
   // Billing stats
   const billingStats = useMemo(() => {
-    const totalSpent = mockInvoices
+    const totalSpent = invoices
       .filter(inv => inv.status === 'paid')
       .reduce((sum, inv) => sum + inv.amount, 0);
-    const pendingAmount = mockInvoices
+    const pendingAmount = invoices
       .filter(inv => inv.status === 'pending' || inv.status === 'overdue')
       .reduce((sum, inv) => sum + inv.amount, 0);
     return { totalSpent, pendingAmount };
-  }, []);
+  }, [invoices]);
 
   // Billing handlers
   const handleBillingSortChange = (field: BillingSortField) => {
@@ -996,11 +956,10 @@ const Dashboard = () => {
     }
   };
 
-  const handleInviteUser = () => {
+  const handleInviteUser = async () => {
     if (!inviteFirstName.trim() || !inviteLastName.trim() || !inviteEmail.trim()) return;
-    
-    const newMember: TeamMember = {
-      id: `user-${Date.now()}`,
+
+    const response = await apiClient.inviteAssessTeamMember({
       firstName: inviteFirstName.trim(),
       lastName: inviteLastName.trim(),
       email: inviteEmail.trim(),
@@ -1008,14 +967,15 @@ const Dashboard = () => {
       phoneCountryCode: invitePhone.trim() ? invitePhoneCountryCode : undefined,
       positionTitle: invitePositionTitle.trim() || undefined,
       role: inviteRole,
-      status: 'pending',
-      invitedAt: new Date()
-    };
-    
-    setTeamMembers(prev => [...prev, newMember]);
+    });
+
+    if (!response.success) {
+      toast.error(response.error || 'Failed to send invitation');
+      return;
+    }
+
     toast.success(`Invitation sent to ${inviteFirstName} ${inviteLastName} (${inviteEmail})`);
     setInviteDialogOpen(false);
-    // Reset all fields
     setInviteFirstName('');
     setInviteLastName('');
     setInviteEmail('');
@@ -1023,6 +983,7 @@ const Dashboard = () => {
     setInvitePhoneCountryCode('+61');
     setInvitePositionTitle('');
     setInviteRole('recruiter');
+    await fetchDashboardMeta();
   };
 
   const handleResendInvite = (member: TeamMember) => {
@@ -1084,13 +1045,14 @@ const Dashboard = () => {
     setSelectedRole(prev => 
       prev ? { ...prev, candidates: [...prev.candidates, ...newCandidates] } : null
     );
+
+    void openRoleDetails(selectedRole);
   };
 
   // Assign assessments to existing candidate
-  const handleAssignAssessments = async (candidateId: string, roleId: string, assessmentIds: string[]) => {
-    if (assessmentIds.length === 0) return;
-    const packageId = assessmentIds[0];
-    const assignRes = await apiClient.assignPackageToCandidate(roleId, candidateId, { packageId });
+  const handleAssignAssessments = async (candidateId: string, roleId: string, _assessmentIds: string[]) => {
+    const role = roles.find((r) => r.id === roleId);
+    const assignRes = await apiClient.assignPackageToCandidate(roleId, candidateId, {});
     if (!assignRes.success) {
       toast.error(assignRes.error || 'Failed to assign package to candidate');
       return;
@@ -1106,16 +1068,32 @@ const Dashboard = () => {
     const hasOpened = Boolean(statusRes.data?.timeline?.some((item: any) => item.linkOpenedAt));
     const hasSubmitted = Boolean(statusRes.data?.timeline?.some((item: any) => item.submittedAt));
 
-    const newResults: CandidateAssessmentResult[] = assessmentIds.map(id => {
-      const assessment = assessments.find(a => a.id === id)!;
+    const timeline = Array.isArray(statusRes.data?.timeline) ? statusRes.data.timeline : [];
+    const newResults: CandidateAssessmentResult[] = timeline.map((item: any, index: number) => {
+      const mappedAssessment = role?.assessments.find((a) => a.id === item.roundId);
+      const mappedName = mappedAssessment?.name || `Assessment ${index + 1}`;
+      const mappedCategory = mappedAssessment?.category || 'aptitude';
       return {
-        assessmentId: id,
-        assessmentName: assessment.name,
-        category: assessment.category,
-        status: hasSubmitted ? 'completed' as const : hasOpened ? 'in_progress' as const : 'invited' as const,
-        assignedAt: new Date(),
+        assessmentId: item.roundId || `round-${index}`,
+        assessmentName: mappedName,
+        category: mappedCategory as 'skills' | 'behavioural' | 'aptitude',
+        status: item.submittedAt ? 'completed' as const : item.linkOpenedAt ? 'in_progress' as const : 'pending' as const,
+        assignedAt: item.invitedAt ? new Date(item.invitedAt) : new Date(),
+        completedAt: item.submittedAt ? new Date(item.submittedAt) : undefined,
       };
     });
+
+    if (newResults.length === 0 && role?.assessments?.length) {
+      role.assessments.forEach((assessment) => {
+        newResults.push({
+          assessmentId: assessment.id,
+          assessmentName: assessment.name,
+          category: assessment.category as 'skills' | 'behavioural' | 'aptitude',
+          status: hasSubmitted ? 'completed' as const : hasOpened ? 'in_progress' as const : 'pending' as const,
+          assignedAt: new Date(),
+        });
+      });
+    }
 
     setRoles(prev => prev.map(role => {
       if (role.id !== roleId) return role;
@@ -1374,6 +1352,19 @@ const Dashboard = () => {
   
   const formatRoleStatus = (status: string) => {
     return status.charAt(0).toUpperCase() + status.slice(1);
+  };
+
+  const openRoleDetails = async (role: Role) => {
+    setSelectedRole(role);
+    try {
+      const detailRes = await apiClient.getJobWithCandidates(role.id);
+      if (!detailRes.success || !detailRes.data) return;
+      const normalized = mapApiJobToRole(detailRes.data as any);
+      setRoles((prev) => prev.map((item) => (item.id === normalized.id ? normalized : item)));
+      setSelectedRole(normalized);
+    } catch (error) {
+      console.error('Failed to fetch role details:', error);
+    }
   };
 
   return (
@@ -2283,7 +2274,9 @@ const Dashboard = () => {
                               // Also update selectedRole to avoid stale data
                               const updatedSelectedRole = newRoles.find(r => r.id === selectedRole.id);
                               if (updatedSelectedRole) {
-                                setSelectedRole(updatedSelectedRole);
+                                if (updatedSelectedRole) {
+                                  void openRoleDetails(updatedSelectedRole);
+                                }
                               }
                               
                               return newRoles;
@@ -2468,7 +2461,7 @@ const Dashboard = () => {
                           <div 
                             key={role.id} 
                             className="bg-card rounded-xl border border-border p-6 hover:shadow-md transition-shadow cursor-pointer"
-                            onClick={() => setSelectedRole(role)}
+                            onClick={() => void openRoleDetails(role)}
                           >
                             <div className="flex items-start justify-between mb-4">
                               <div>
@@ -2537,7 +2530,7 @@ const Dashboard = () => {
                                   size="sm"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setSelectedRole(role);
+                                    void openRoleDetails(role);
                                   }}
                                 >
                                   View Details
@@ -3121,7 +3114,7 @@ const Dashboard = () => {
                             onClick={() => {
                               const role = roles.find(r => r.id === candidate.roleId);
                               if (role) {
-                                setSelectedRole(role);
+                                void openRoleDetails(role);
                                 setActiveTab('roles');
                               }
                             }}
@@ -3243,7 +3236,7 @@ const Dashboard = () => {
                       <Calendar className="h-5 w-5 text-primary" />
                     </div>
                   </div>
-                  <p className="text-2xl font-bold text-foreground">{mockInvoices.length}</p>
+                  <p className="text-2xl font-bold text-foreground">{invoices.length}</p>
                   <p className="text-sm text-muted-foreground">Total Invoices</p>
                 </div>
               </div>
@@ -3773,20 +3766,28 @@ const Dashboard = () => {
 
               {/* Checks & Verifications Table */}
               {(() => {
-                const addonChecks = [
-                  { id: 'chk-1', candidateName: 'John Doe', candidateEmail: 'john.doe@email.com', checkType: 'Criminal Record Check', checkIcon: Fingerprint, role: 'Software Engineer', requestedDate: new Date('2025-01-12'), status: 'completed' as const, result: 'Clear' },
-                  { id: 'chk-2', candidateName: 'John Doe', candidateEmail: 'john.doe@email.com', checkType: 'Identity Verification', checkIcon: ShieldCheck, role: 'Software Engineer', requestedDate: new Date('2025-01-13'), status: 'completed' as const, result: 'Verified' },
-                  { id: 'chk-3', candidateName: 'Jane Smith', candidateEmail: 'jane.smith@email.com', checkType: 'Reference Checks', checkIcon: UserCog, role: 'Software Engineer', requestedDate: new Date('2025-01-15'), status: 'in_progress' as const, result: '' },
-                  { id: 'chk-4', candidateName: 'Mike Johnson', candidateEmail: 'mike.j@email.com', checkType: 'Criminal Record Check', checkIcon: Fingerprint, role: 'Product Manager', requestedDate: new Date('2025-01-10'), status: 'completed' as const, result: 'Clear' },
-                  { id: 'chk-5', candidateName: 'Mike Johnson', candidateEmail: 'mike.j@email.com', checkType: 'Qualification Verification', checkIcon: GraduationCap, role: 'Product Manager', requestedDate: new Date('2025-01-11'), status: 'completed' as const, result: 'Verified' },
-                  { id: 'chk-6', candidateName: 'Emma Williams', candidateEmail: 'emma.w@email.com', checkType: 'Identity Verification', checkIcon: ShieldCheck, role: 'Product Manager', requestedDate: new Date('2025-01-12'), status: 'completed' as const, result: 'Verified' },
-                  { id: 'chk-7', candidateName: 'Emma Williams', candidateEmail: 'emma.w@email.com', checkType: 'AI Video Interview', checkIcon: Video, role: 'Product Manager', requestedDate: new Date('2025-01-14'), status: 'completed' as const, result: 'Recommended' },
-                  { id: 'chk-8', candidateName: 'Sarah Wilson', candidateEmail: 'sarah.w@email.com', checkType: 'Criminal Record Check', checkIcon: Fingerprint, role: 'Sales Representative', requestedDate: new Date('2025-01-16'), status: 'pending' as const, result: '' },
-                  { id: 'chk-9', candidateName: 'David Brown', candidateEmail: 'david.b@email.com', checkType: 'Reference Checks', checkIcon: UserCog, role: 'Sales Representative', requestedDate: new Date('2025-01-11'), status: 'completed' as const, result: 'Positive' },
-                  { id: 'chk-10', candidateName: 'Lisa Taylor', candidateEmail: 'lisa.t@email.com', checkType: 'Identity Verification', checkIcon: ShieldCheck, role: 'Sales Representative', requestedDate: new Date('2025-01-13'), status: 'failed' as const, result: 'Mismatch' },
-                  { id: 'chk-11', candidateName: 'Rachel Martinez', candidateEmail: 'rachel.m@email.com', checkType: 'AI Video Interview', checkIcon: Video, role: 'Sales Representative', requestedDate: new Date('2025-01-17'), status: 'in_progress' as const, result: '' },
-                  { id: 'chk-12', candidateName: 'Alex Chen', candidateEmail: 'alex.chen@email.com', checkType: 'Criminal Record Check', checkIcon: Fingerprint, role: 'Software Engineer', requestedDate: new Date('2025-01-18'), status: 'pending' as const, result: '' },
-                ];
+                const addOnIconByName: Record<string, any> = {
+                  'Identity Verification': ShieldCheck,
+                  'Qualification Verification': GraduationCap,
+                  'Criminal Record Check': Fingerprint,
+                  'Reference Checks': UserCog,
+                  'AI Video Interview': Video,
+                };
+                const addonChecks = roles.flatMap((role) =>
+                  role.candidates.flatMap((candidate) =>
+                    (candidate.addOnResults || []).map((result, index) => ({
+                      id: `${candidate.id}-${result.addOnId}-${index}`,
+                      candidateName: `${candidate.firstName} ${candidate.lastName}`.trim(),
+                      candidateEmail: candidate.email,
+                      checkType: result.addOnName,
+                      checkIcon: addOnIconByName[result.addOnName] || ShieldCheck,
+                      role: role.position.title,
+                      requestedDate: result.requestedAt ? new Date(result.requestedAt) : new Date(),
+                      status: result.status,
+                      result: result.result || '',
+                    }))
+                  )
+                );
 
                 const checkStatusColors: Record<string, string> = {
                   completed: 'bg-success/10 text-success border-success/20',
@@ -3971,13 +3972,51 @@ const Dashboard = () => {
           )}
 
           {activeTab === 'settings' && (
-            <CompanySettings initialSubTab={settingsSubTab} teamMembers={teamMembers} />
+            <CompanySettings
+              initialSubTab={settingsSubTab}
+              teamMembers={teamMembers}
+              profileData={companySettingsProfile}
+              onSaveProfile={async (payload) => {
+                const response = await apiClient.updateAssessCompanyProfile(payload as Record<string, unknown>);
+                if (!response.success) {
+                  throw new Error(response.error || 'Failed to save company profile');
+                }
+                await fetchDashboardMeta();
+              }}
+            />
           )}
 
           {activeTab === 'profile' && (
             <UserProfile 
               user={currentUser}
-              onUpdateUser={(updates) => setCurrentUser(prev => ({ ...prev, ...updates }))}
+              sessions={profileSessions}
+              onUpdateUser={async (updates) => {
+                setCurrentUser(prev => ({ ...prev, ...updates }));
+                const response = await apiClient.updateAssessMyProfile({
+                  firstName: updates.firstName,
+                  lastName: updates.lastName,
+                  phone: updates.phone,
+                  phoneCountryCode: updates.phoneCountryCode,
+                  positionTitle: updates.positionTitle,
+                });
+                if (!response.success) {
+                  throw new Error(response.error || 'Failed to update profile');
+                }
+                await fetchDashboardMeta();
+              }}
+              onChangePassword={async ({ currentPassword, newPassword }) => {
+                const response = await apiClient.changeAssessPassword({ currentPassword, newPassword });
+                if (!response.success) {
+                  throw new Error(response.error || 'Failed to change password');
+                }
+              }}
+              onSignOutOtherSessions={async () => {
+                const response = await apiClient.logoutOtherAssessSessions();
+                if (!response.success) {
+                  throw new Error(response.error || 'Failed to sign out sessions');
+                }
+                await fetchDashboardMeta();
+              }}
               subTab={profileSubTab}
               setSubTab={setProfileSubTab}
             />
@@ -4117,6 +4156,7 @@ const Dashboard = () => {
         candidate={selectedCandidateForAssign?.candidate || null}
         roleId={selectedCandidateForAssign?.roleId || ''}
         roleName={selectedCandidateForAssign?.roleName || ''}
+        availableAssessments={selectedRole?.assessments || []}
         onAssign={handleAssignAssessments}
       />
 

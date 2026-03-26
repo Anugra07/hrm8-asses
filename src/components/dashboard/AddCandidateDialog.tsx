@@ -49,7 +49,6 @@ interface AddCandidateDialogProps {
   roleName: string;
   roleId: string;
   onAddCandidates: (candidates: RoleCandidate[]) => void;
-  useApi?: boolean; // If true, use the API to add candidates
 }
 
 export function AddCandidateDialog({
@@ -58,7 +57,6 @@ export function AddCandidateDialog({
   roleName,
   roleId,
   onAddCandidates,
-  useApi = true,
 }: AddCandidateDialogProps) {
   const [candidates, setCandidates] = useState<NewCandidateForm[]>([{ ...emptyCandidate }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -125,70 +123,58 @@ export function AddCandidateDialog({
     setIsSubmitting(true);
 
     try {
-      if (useApi && roleId) {
-        // Use API to add each candidate
-        const addedCandidates: RoleCandidate[] = [];
-        let successCount = 0;
-        let errorCount = 0;
+      if (!roleId) {
+        toast.error('Missing role context. Please refresh and try again.');
+        return;
+      }
 
-        for (const candidate of candidates) {
-          try {
-            const response = await apiClient.addCandidateToJob(
-              roleId,
-              {
-                firstName: candidate.firstName.trim(),
-                lastName: candidate.lastName.trim(),
-                email: candidate.email.trim(),
-                mobile: candidate.mobile.trim() || undefined,
-                mobileCountryCode: candidate.mobileCountryCode,
-              },
-              candidate.cvFile || undefined
-            );
+      // Use API to add each candidate
+      const addedCandidates: RoleCandidate[] = [];
+      let successCount = 0;
+      let errorCount = 0;
 
-            if (response.success && response.data) {
-              successCount++;
-              addedCandidates.push({
-                id: response.data.candidateId,
-                firstName: candidate.firstName.trim(),
-                lastName: candidate.lastName.trim(),
-                email: candidate.email.trim(),
-                mobileCountryCode: candidate.mobileCountryCode,
-                mobile: candidate.mobile.trim() || undefined,
-                status: 'invited' as const,
-                stage: 'NEW_APPLICATION',
-              });
-            } else {
-              errorCount++;
-              console.error(`Failed to add candidate ${candidate.email}:`, response.error);
-            }
-          } catch (err) {
+      for (const candidate of candidates) {
+        try {
+          const response = await apiClient.addCandidateToJob(
+            roleId,
+            {
+              firstName: candidate.firstName.trim(),
+              lastName: candidate.lastName.trim(),
+              email: candidate.email.trim(),
+              mobile: candidate.mobile.trim() || undefined,
+              mobileCountryCode: candidate.mobileCountryCode,
+            },
+            candidate.cvFile || undefined
+          );
+
+          if (response.success && response.data) {
+            successCount++;
+            addedCandidates.push({
+              id: response.data.candidateId,
+              firstName: candidate.firstName.trim(),
+              lastName: candidate.lastName.trim(),
+              email: candidate.email.trim(),
+              mobileCountryCode: candidate.mobileCountryCode,
+              mobile: candidate.mobile.trim() || undefined,
+              status: 'invited' as const,
+              stage: 'NEW_APPLICATION',
+            });
+          } else {
             errorCount++;
-            console.error(`Error adding candidate ${candidate.email}:`, err);
+            console.error(`Failed to add candidate ${candidate.email}:`, response.error);
           }
+        } catch (err) {
+          errorCount++;
+          console.error(`Error adding candidate ${candidate.email}:`, err);
         }
+      }
 
-        if (successCount > 0) {
-          toast.success(`Successfully added ${successCount} candidate${successCount !== 1 ? 's' : ''}`);
-          onAddCandidates(addedCandidates);
-        }
-        if (errorCount > 0) {
-          toast.error(`Failed to add ${errorCount} candidate${errorCount !== 1 ? 's' : ''}`);
-        }
-      } else {
-        // Fallback to local-only (for mock data)
-        const newCandidates: RoleCandidate[] = candidates.map((c, i) => ({
-          id: `new-${Date.now()}-${i}`,
-          firstName: c.firstName.trim(),
-          lastName: c.lastName.trim(),
-          email: c.email.trim(),
-          mobileCountryCode: c.mobileCountryCode,
-          mobile: c.mobile.trim() || undefined,
-          status: 'invited' as const,
-          stage: 'NEW_APPLICATION',
-        }));
-
-        toast.success(`Added ${newCandidates.length} candidate${newCandidates.length !== 1 ? 's' : ''}`);
-        onAddCandidates(newCandidates);
+      if (successCount > 0) {
+        toast.success(`Successfully added ${successCount} candidate${successCount !== 1 ? 's' : ''}`);
+        onAddCandidates(addedCandidates);
+      }
+      if (errorCount > 0) {
+        toast.error(`Failed to add ${errorCount} candidate${errorCount !== 1 ? 's' : ''}`);
       }
 
       setCandidates([{ ...emptyCandidate }]);

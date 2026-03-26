@@ -53,27 +53,16 @@ interface UserProfileProps {
   onUpdateUser: (updates: Partial<CurrentUser>) => void;
   subTab: ProfileSubTab;
   setSubTab: (tab: ProfileSubTab) => void;
+  sessions?: Array<{
+    id: string;
+    device: string;
+    location: string;
+    lastActive: Date;
+    isCurrent: boolean;
+  }>;
+  onChangePassword?: (payload: { currentPassword: string; newPassword: string }) => Promise<void> | void;
+  onSignOutOtherSessions?: () => Promise<void> | void;
 }
-
-// Mock active sessions data
-const mockSessions = [
-  {
-    id: '1',
-    device: 'Chrome on MacOS',
-    icon: Monitor,
-    location: 'Sydney, Australia',
-    lastActive: new Date(),
-    isCurrent: true,
-  },
-  {
-    id: '2',
-    device: 'Safari on iPhone',
-    icon: Smartphone,
-    location: 'Melbourne, Australia',
-    lastActive: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-    isCurrent: false,
-  },
-];
 
 // Password requirements
 const passwordRequirements = [
@@ -83,7 +72,15 @@ const passwordRequirements = [
   { id: 'number', label: 'One number', test: (p: string) => /\d/.test(p) },
 ];
 
-export const UserProfile = ({ user, onUpdateUser, subTab, setSubTab }: UserProfileProps) => {
+export const UserProfile = ({
+  user,
+  onUpdateUser,
+  subTab,
+  setSubTab,
+  sessions = [],
+  onChangePassword,
+  onSignOutOtherSessions,
+}: UserProfileProps) => {
   // Personal info state
   const [firstName, setFirstName] = useState(user.firstName);
   const [lastName, setLastName] = useState(user.lastName);
@@ -127,7 +124,7 @@ export const UserProfile = ({ user, onUpdateUser, subTab, setSubTab }: UserProfi
     toast.success('Profile updated successfully');
   };
 
-  const handleChangePassword = () => {
+  const handleChangePassword = async () => {
     // Validate
     if (!currentPassword) {
       toast.error('Please enter your current password');
@@ -142,15 +139,24 @@ export const UserProfile = ({ user, onUpdateUser, subTab, setSubTab }: UserProfi
       return;
     }
 
-    // Mock password change
-    toast.success('Password changed successfully');
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
+    try {
+      await onChangePassword?.({ currentPassword, newPassword });
+      toast.success('Password changed successfully');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to change password');
+    }
   };
 
-  const handleSignOutAllSessions = () => {
-    toast.success('Signed out of all other sessions');
+  const handleSignOutAllSessions = async () => {
+    try {
+      await onSignOutOtherSessions?.();
+      toast.success('Signed out of all other sessions');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to sign out other sessions');
+    }
   };
 
   const handleNotificationChange = (key: keyof typeof notifications, value: boolean) => {
@@ -457,8 +463,8 @@ export const UserProfile = ({ user, onUpdateUser, subTab, setSubTab }: UserProfi
               </p>
               
               <div className="space-y-4">
-                {mockSessions.map(session => {
-                  const Icon = session.icon;
+                {sessions.map(session => {
+                  const Icon = session.device.toLowerCase().includes('phone') ? Smartphone : Monitor;
                   return (
                     <div 
                       key={session.id}

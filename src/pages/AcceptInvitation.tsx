@@ -11,6 +11,7 @@ import { countryCodes } from "@/lib/constants";
 import { toast } from "@/hooks/use-toast";
 import logoLight from "@/assets/logo-light.png";
 import logoDark from "@/assets/logo-dark.png";
+import { apiClient } from "@/lib/api";
 
 // Role descriptions for display
 const roleDescriptions: Record<string, { label: string; description: string; icon: React.ReactNode }> = {
@@ -34,21 +35,6 @@ const roleDescriptions: Record<string, { label: string; description: string; ico
     description: "View-only access to candidates and assessment results",
     icon: <BarChart3 className="h-4 w-4" />
   }
-};
-
-// Mock invitation data (in production, this would come from the backend)
-const mockInvitation = {
-  token: "abc123",
-  firstName: "John",
-  lastName: "Smith",
-  email: "john.smith@company.com",
-  phone: "4 1234 5678",
-  phoneCountryCode: "+61",
-  positionTitle: "HR Coordinator",
-  role: "recruiter",
-  companyName: "Acme Corporation",
-  invitedBy: "Sarah Johnson",
-  expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days from now
 };
 
 export default function AcceptInvitation() {
@@ -77,25 +63,34 @@ export default function AcceptInvitation() {
   useEffect(() => {
     const validateToken = async () => {
       setIsValidating(true);
-      
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // In production, validate token against backend
-      if (token === mockInvitation.token || token === "demo") {
-        setFirstName(mockInvitation.firstName);
-        setLastName(mockInvitation.lastName);
-        setEmail(mockInvitation.email);
-        setPhone(mockInvitation.phone || "");
-        setPhoneCountryCode(mockInvitation.phoneCountryCode || "+61");
-        setPositionTitle(mockInvitation.positionTitle || "");
-        setRole(mockInvitation.role);
-        setCompanyName(mockInvitation.companyName);
+
+      if (!token) {
+        setIsValid(false);
+        setIsValidating(false);
+        return;
+      }
+
+      try {
+        const response = await apiClient.getAssessInvitation(token);
+        if (!response.success || !response.data) {
+          setIsValid(false);
+          setIsValidating(false);
+          return;
+        }
+
+        setFirstName(response.data.firstName || "");
+        setLastName(response.data.lastName || "");
+        setEmail(response.data.email || "");
+        setPhone(response.data.phone || "");
+        setPhoneCountryCode(response.data.phoneCountryCode || "+61");
+        setPositionTitle(response.data.positionTitle || "");
+        setRole(response.data.role || "recruiter");
+        setCompanyName(response.data.companyName || "HRM8");
         setIsValid(true);
-      } else {
+      } catch {
         setIsValid(false);
       }
-      
+
       setIsValidating(false);
     };
 
@@ -125,17 +120,39 @@ export default function AcceptInvitation() {
     }
 
     setIsLoading(true);
+    try {
+      if (!token) {
+        throw new Error("Invitation token is missing");
+      }
 
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
+      const response = await apiClient.acceptAssessInvitation(token, {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        phone: phone.trim() || undefined,
+        phoneCountryCode,
+        positionTitle: positionTitle.trim() || undefined,
+        password,
+      });
 
-    toast({
-      title: "Account Activated!",
-      description: `Welcome to ${companyName}, ${firstName}!`
-    });
+      if (!response.success) {
+        throw new Error(response.error || "Failed to accept invitation");
+      }
 
-    // Redirect to dashboard
-    navigate("/dashboard");
+      toast({
+        title: "Account Activated!",
+        description: `Welcome to ${companyName}, ${firstName}!`
+      });
+
+      navigate("/dashboard");
+    } catch (error) {
+      toast({
+        title: "Could not activate invitation",
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Loading state

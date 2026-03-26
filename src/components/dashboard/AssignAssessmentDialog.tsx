@@ -15,7 +15,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { FilterButtonGroup } from '@/components/ui/filter-button-group';
 import { Search, Clock, DollarSign } from 'lucide-react';
 import { Assessment, CandidateAssessmentResult } from '@/types/assessment';
-import { assessments } from '@/data/assessments';
 import { categoryColors } from '@/lib/constants';
 
 interface AssignAssessmentDialogProps {
@@ -29,6 +28,7 @@ interface AssignAssessmentDialogProps {
   } | null;
   roleId: string;
   roleName: string;
+  availableAssessments: Assessment[];
   onAssign: (candidateId: string, roleId: string, assessmentIds: string[]) => void;
 }
 
@@ -38,6 +38,7 @@ export const AssignAssessmentDialog = ({
   candidate,
   roleId,
   roleName,
+  availableAssessments,
   onAssign,
 }: AssignAssessmentDialogProps) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,14 +53,14 @@ export const AssignAssessmentDialog = ({
 
   // Filter assessments based on search and category
   const filteredAssessments = useMemo(() => {
-    return assessments.filter(assessment => {
+    return availableAssessments.filter(assessment => {
       const matchesSearch = !searchQuery || 
         assessment.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         assessment.description.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesCategory = categoryFilter === 'all' || assessment.category === categoryFilter;
       return matchesSearch && matchesCategory;
     });
-  }, [searchQuery, categoryFilter]);
+  }, [availableAssessments, searchQuery, categoryFilter]);
 
   const handleToggleAssessment = (assessmentId: string) => {
     setSelectedAssessments(prev => 
@@ -197,10 +198,7 @@ export const AssignAssessmentDialog = ({
                 {selectedAssessments.length} assessment{selectedAssessments.length !== 1 ? 's' : ''} selected
               </span>
               <span className="font-medium text-foreground">
-                ${selectedAssessments.reduce((total, id) => {
-                  const assessment = assessments.find(a => a.id === id);
-                  return total + (assessment?.price || 0);
-                }, 0)}
+                {selectedAssessments.length} selected
               </span>
             </div>
           )}

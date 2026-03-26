@@ -136,6 +136,60 @@ class ApiClient {
         });
     }
 
+    async getAssessDashboardMeta(): Promise<ApiResponse<{
+        currentUser: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            email: string;
+            role: string;
+            phone?: string;
+            phoneCountryCode?: string;
+            positionTitle?: string;
+            joinedAt?: string;
+            lastActiveAt?: string;
+        };
+        teamMembers: Array<{
+            id: string;
+            firstName: string;
+            lastName: string;
+            email: string;
+            phone?: string;
+            phoneCountryCode?: string;
+            positionTitle?: string;
+            role: string;
+            status: string;
+            invitedAt?: string;
+            joinedAt?: string;
+            lastActiveAt?: string;
+        }>;
+        invoices: Array<{
+            id: string;
+            invoiceNumber: string;
+            date: string;
+            dueDate: string;
+            amount: number;
+            status: 'paid' | 'pending' | 'overdue';
+            description: string;
+            items?: Array<{ name: string; quantity: number; price: number }>;
+            currency?: string;
+            paidAt?: string;
+        }>;
+        sessions: Array<{
+            id: string;
+            sessionId: string;
+            createdAt: string;
+            lastActivity: string;
+            expiresAt: string;
+            isCurrent: boolean;
+        }>;
+        companyProfile: Record<string, unknown>;
+    }>> {
+        return this.request('/api/assess/dashboard/meta', {
+            method: 'GET',
+        });
+    }
+
     async logout(): Promise<ApiResponse<{ message: string }>> {
         return this.request<{ message: string }>('/api/assess/logout', {
             method: 'POST',
@@ -179,6 +233,25 @@ class ApiClient {
         return this.request('/api/assess/recommendations', {
             method: 'POST',
             body: JSON.stringify(data),
+        });
+    }
+
+    async getAssessPackages(): Promise<ApiResponse<Array<{
+        id: string;
+        packageId: string;
+        code: string;
+        name: string;
+        description: string;
+        assessmentCount: number;
+        price: number;
+        perCandidatePrice: number;
+        includedCandidates: number;
+        currency: string;
+        features: string[];
+        popular?: boolean;
+    }>>> {
+        return this.request('/api/assess/packages', {
+            method: 'GET',
         });
     }
 
@@ -459,7 +532,7 @@ class ApiClient {
     }
 
     async assignPackageToCandidate(jobId: string, candidateId: string, payload: {
-        packageId: string;
+        packageId?: string;
     }): Promise<ApiResponse<any>> {
         return this.request(`/api/assess/jobs/${jobId}/candidates/${candidateId}/assign-package`, {
             method: 'POST',
@@ -476,6 +549,89 @@ class ApiClient {
     async getCandidateAssessmentStatus(jobId: string, candidateId: string): Promise<ApiResponse<any>> {
         return this.request(`/api/assess/jobs/${jobId}/candidates/${candidateId}/assessment-status`, {
             method: 'GET',
+        });
+    }
+
+    async getAssessCompanyProfile(): Promise<ApiResponse<any>> {
+        return this.request('/api/assess/company/profile', {
+            method: 'GET',
+        });
+    }
+
+    async updateAssessCompanyProfile(payload: Record<string, unknown>): Promise<ApiResponse<any>> {
+        return this.request('/api/assess/company/profile', {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async updateAssessMyProfile(payload: {
+        firstName?: string;
+        lastName?: string;
+        phone?: string;
+        phoneCountryCode?: string;
+        positionTitle?: string;
+    }): Promise<ApiResponse<any>> {
+        return this.request('/api/assess/me/profile', {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async changeAssessPassword(payload: {
+        currentPassword: string;
+        newPassword: string;
+    }): Promise<ApiResponse<any>> {
+        return this.request('/api/assess/me/change-password', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async getAssessSessions(): Promise<ApiResponse<any>> {
+        return this.request('/api/assess/me/sessions', {
+            method: 'GET',
+        });
+    }
+
+    async logoutOtherAssessSessions(): Promise<ApiResponse<any>> {
+        return this.request('/api/assess/me/sessions/logout-others', {
+            method: 'POST',
+        });
+    }
+
+    async inviteAssessTeamMember(payload: {
+        firstName: string;
+        lastName: string;
+        email: string;
+        phone?: string;
+        phoneCountryCode?: string;
+        positionTitle?: string;
+        role: string;
+    }): Promise<ApiResponse<any>> {
+        return this.request('/api/assess/team/invite', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async getAssessInvitation(token: string): Promise<ApiResponse<any>> {
+        return this.request(`/api/assess/invitation/${token}`, {
+            method: 'GET',
+        });
+    }
+
+    async acceptAssessInvitation(token: string, payload: {
+        firstName: string;
+        lastName: string;
+        phone?: string;
+        phoneCountryCode?: string;
+        positionTitle?: string;
+        password: string;
+    }): Promise<ApiResponse<any>> {
+        return this.request(`/api/assess/invitation/${token}/accept`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
         });
     }
 

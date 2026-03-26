@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -100,113 +100,34 @@ We look forward to reviewing your results.
 Best regards,
 The [Company] Team`;
 
-// Mock company profile data
-const mockCompanyProfile: CompanyProfile = {
-  id: 'comp-1',
-  name: 'Acme Corporation',
-  businessName: 'Acme Corp',
-  industry: 'Information Technology',
-  size: '51-200',
-  website: 'https://acme.com',
-  street1: '123 Business Street',
-  street2: 'Level 5',
-  city: 'Sydney',
-  state: 'NSW',
-  postalCode: '2000',
-  primaryCountry: 'Australia',
-  foundedYear: 2015,
-  description: 'Leading provider of innovative software solutions for enterprise clients.',
-  primaryContactUserId: 'user-1',
-  primaryEmail: 'hello@acme.com',
+const defaultCompanyProfile: CompanyProfile = {
+  id: '',
+  name: '',
+  industry: 'Other',
+  size: '1-10',
+  website: '',
+  primaryEmail: '',
   primaryPhoneCountryCode: '+61',
-  primaryPhone: '2 1234 5678',
-  billingEmail: 'billing@acme.com',
-  billingCurrency: 'AUD',
-  taxId: '12 345 678 901',
-  registrationNumber: 'ACN 123 456 789',
-  country: 'Australia',
+  primaryPhone: '',
+  billingEmail: '',
+  billingCurrency: 'USD',
+  country: '',
   timezone: 'Australia/Sydney',
   dateFormat: 'DD/MM/YYYY',
   language: 'en-AU',
-  invoiceNotes: 'Payment terms: Net 30 days',
-  requirePO: false,
   invitationEmailSubject: DEFAULT_EMAIL_SUBJECT,
   invitationEmailMessage: DEFAULT_EMAIL_MESSAGE,
-  addresses: [
-    {
-      id: 'addr-1',
-      label: 'Headquarters',
-      street1: '123 Business Street',
-      street2: 'Level 10',
-      city: 'Sydney',
-      state: 'NSW',
-      postalCode: '2000',
-      country: 'Australia',
-      isPrimary: true,
-      type: 'headquarters',
-    },
-    {
-      id: 'addr-2',
-      label: 'Melbourne Office',
-      street1: '456 Collins Street',
-      city: 'Melbourne',
-      state: 'VIC',
-      postalCode: '3000',
-      country: 'Australia',
-      isPrimary: false,
-      type: 'branch',
-    },
-  ],
-  contacts: [
-    {
-      id: 'contact-1',
-      firstName: 'Sarah',
-      lastName: 'Johnson',
-      email: 'sarah@acme.com',
-      phone: '+61 400 123 456',
-      role: 'primary',
-      isPrimary: true,
-    },
-  ],
-  paymentMethods: [
-    {
-      id: 'pm-1',
-      type: 'credit_card',
-      isDefault: true,
-      cardBrand: 'visa',
-      last4: '4242',
-      expiryMonth: 12,
-      expiryYear: 2026,
-    },
-    {
-      id: 'pm-2',
-      type: 'credit_card',
-      isDefault: false,
-      cardBrand: 'mastercard',
-      last4: '8888',
-      expiryMonth: 6,
-      expiryYear: 2025,
-    },
-  ],
+  addresses: [],
+  contacts: [],
+  paymentMethods: [],
   creditBalance: {
-    id: 'cb-1',
-    availableCredits: 127,
-    totalPurchased: 500,
-    totalUsed: 373,
-    lastPurchase: {
-      id: 'cp-1',
-      quantity: 100,
-      pricePerCredit: 4.25,
-      totalPaid: 425,
-      purchasedAt: new Date('2024-12-15'),
-    },
-    purchaseHistory: [
-      { id: 'cp-1', quantity: 100, pricePerCredit: 4.25, totalPaid: 425, purchasedAt: new Date('2024-12-15') },
-      { id: 'cp-2', quantity: 50, pricePerCredit: 4.50, totalPaid: 225, purchasedAt: new Date('2024-10-03') },
-      { id: 'cp-3', quantity: 20, pricePerCredit: 5.00, totalPaid: 100, purchasedAt: new Date('2024-07-22') },
-    ],
+    id: 'credit-balance',
+    availableCredits: 0,
+    totalPurchased: 0,
+    totalUsed: 0,
+    purchaseHistory: [],
   },
-  createdAt: new Date('2023-01-15'),
+  createdAt: new Date(),
   updatedAt: new Date(),
 };
 
@@ -224,11 +145,21 @@ interface TeamMember {
 interface CompanySettingsProps {
   initialSubTab?: SettingsSubTab;
   teamMembers?: TeamMember[];
+  profileData?: Partial<CompanyProfile> | null;
+  onSaveProfile?: (payload: Partial<CompanyProfile>) => Promise<void> | void;
 }
 
-export function CompanySettings({ initialSubTab = 'company', teamMembers = [] }: CompanySettingsProps) {
+export function CompanySettings({
+  initialSubTab = 'company',
+  teamMembers = [],
+  profileData = null,
+  onSaveProfile,
+}: CompanySettingsProps) {
   const [subTab, setSubTab] = useState<SettingsSubTab>(initialSubTab);
-  const [companyProfile, setCompanyProfile] = useState<CompanyProfile>(mockCompanyProfile);
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile>({
+    ...defaultCompanyProfile,
+    ...(profileData || {}),
+  });
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   
   // Location dialog state
@@ -241,8 +172,8 @@ export function CompanySettings({ initialSubTab = 'company', teamMembers = [] }:
   
   // Email editing state
   const [isEditingEmail, setIsEditingEmail] = useState(false);
-  const [emailSubject, setEmailSubject] = useState(mockCompanyProfile.invitationEmailSubject || '');
-  const [emailMessage, setEmailMessage] = useState(mockCompanyProfile.invitationEmailMessage || '');
+  const [emailSubject, setEmailSubject] = useState((profileData?.invitationEmailSubject as string) || defaultCompanyProfile.invitationEmailSubject || '');
+  const [emailMessage, setEmailMessage] = useState((profileData?.invitationEmailMessage as string) || defaultCompanyProfile.invitationEmailMessage || '');
   
   // Plan comparison dialog
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
@@ -257,6 +188,22 @@ export function CompanySettings({ initialSubTab = 'company', teamMembers = [] }:
     phone: '',
     positionTitle: '',
   });
+
+  useEffect(() => {
+    if (!profileData) return;
+    setCompanyProfile((prev) => ({
+      ...prev,
+      ...profileData,
+      addresses: Array.isArray(profileData.addresses) ? profileData.addresses as Address[] : prev.addresses,
+      contacts: Array.isArray(profileData.contacts) ? profileData.contacts : prev.contacts,
+      paymentMethods: Array.isArray(profileData.paymentMethods) ? profileData.paymentMethods : prev.paymentMethods,
+      creditBalance: (profileData.creditBalance as any) || prev.creditBalance,
+      createdAt: profileData.createdAt ? new Date(profileData.createdAt as any) : prev.createdAt,
+      updatedAt: profileData.updatedAt ? new Date(profileData.updatedAt as any) : prev.updatedAt,
+    }));
+    setEmailSubject((profileData.invitationEmailSubject as string) || DEFAULT_EMAIL_SUBJECT);
+    setEmailMessage((profileData.invitationEmailMessage as string) || DEFAULT_EMAIL_MESSAGE);
+  }, [profileData]);
   
   // Form handlers
   const handleProfileChange = (field: keyof CompanyProfile, value: any) => {
@@ -311,9 +258,18 @@ export function CompanySettings({ initialSubTab = 'company', teamMembers = [] }:
     setHasUnsavedChanges(true);
   };
   
-  const handleSaveProfile = () => {
-    toast.success('Company profile saved successfully');
-    setHasUnsavedChanges(false);
+  const handleSaveProfile = async () => {
+    try {
+      await onSaveProfile?.({
+        ...companyProfile,
+        invitationEmailSubject: emailSubject,
+        invitationEmailMessage: emailMessage,
+      });
+      toast.success('Company profile saved successfully');
+      setHasUnsavedChanges(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save company profile');
+    }
   };
   
   // Location handlers

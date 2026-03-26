@@ -57,7 +57,7 @@ import { WizardState, Candidate, Assessment, AssessmentBundle, CustomBundle } fr
 import { addOnServices } from '@/data/addons';
 import { assessments, getAssessmentRecommendations } from '@/data/assessments';
 import { bundles, getBundleAssessments, getRecommendedBundle } from '@/data/bundles';
-import { assessmentPacks, questionTypes, type AssessmentPack } from '@/data/packs';
+import { assessmentPacks as defaultAssessmentPacks, questionTypes, type AssessmentPack } from '@/data/packs';
 import type { RecommendationResult } from '@/types/assessment';
 
 const ASSESS_PENDING_CHECKOUT_KEY = 'hrm8_assess_pending_checkout_v1';
@@ -142,7 +142,9 @@ const Wizard = () => {
   const [candidateConsentConfirmed, setCandidateConsentConfirmed] = useState(false);
   
   // Selected assessment pack state
+  const [availablePacks, setAvailablePacks] = useState<AssessmentPack[]>(defaultAssessmentPacks);
   const [selectedPack, setSelectedPack] = useState<AssessmentPack | null>(null);
+  const packCatalog = availablePacks.length > 0 ? availablePacks : defaultAssessmentPacks;
   const [aiRecommendations, setAiRecommendations] = useState<{
     recommendedPackId: string;
     assessmentTypes: string[];
@@ -197,6 +199,28 @@ const Wizard = () => {
       }
     };
     fetchJobOptions();
+  }, []);
+
+  useEffect(() => {
+    const fetchPackageCatalog = async () => {
+      try {
+        const response = await apiClient.getAssessPackages();
+        if (response.success && Array.isArray(response.data) && response.data.length > 0) {
+          setAvailablePacks(response.data.map((pack) => ({
+            id: pack.id,
+            name: pack.name,
+            description: pack.description,
+            assessmentCount: Number(pack.assessmentCount || 1),
+            price: Number(pack.price || 0),
+            popular: Boolean(pack.popular),
+            features: Array.isArray(pack.features) ? pack.features : [],
+          })));
+        }
+      } catch (error) {
+        console.error('Failed to load assess package catalog:', error);
+      }
+    };
+    void fetchPackageCatalog();
   }, []);
 
   // Fetch existing job if ID provided
@@ -259,7 +283,7 @@ const Wizard = () => {
                         setConfiguredAssessments(initialConfig);
 
                         // Auto-select recommended pack
-                        const recPack = assessmentPacks.find(p => p.id === aiResponse.data.recommendedPackId);
+                        const recPack = packCatalog.find(p => p.id === aiResponse.data.recommendedPackId);
                         if (recPack) setSelectedPack(recPack);
                     }
                 } catch (aiError) {
@@ -281,29 +305,70 @@ const Wizard = () => {
 
   // Check auth and skip steps if logged in
   useEffect(() => {
-    if (isAuthenticated && user) {
-      setWizardData(prev => ({
+    if (!isAuthenticated || !user) return;
+
+    const hydrateFromSession = async () => {
+      const nameParts = user.name.split(' ');
+      let companyPatch: Record<string, unknown> = {
+        billingEmail: user.email,
+      };
+      let userPatch: Record<string, unknown> = {
+        firstName: nameParts[0] || '',
+        lastName: nameParts.slice(1).join(' '),
+        email: user.email,
+      };
+
+      try {
+        const [companyRes, metaRes] = await Promise.all([
+          apiClient.getAssessCompanyProfile(),
+          apiClient.getAssessDashboardMeta(),
+        ]);
+
+        if (companyRes.success && companyRes.data) {
+          companyPatch = {
+            name: companyRes.data.name || '',
+            website: companyRes.data.website || '',
+            country: companyRes.data.country || '',
+            industry: companyRes.data.industry || '',
+            size: companyRes.data.size || '',
+            billingEmail: companyRes.data.billingEmail || user.email,
+          };
+        }
+
+        if (metaRes.success && metaRes.data?.currentUser) {
+          const currentUser = metaRes.data.currentUser;
+          userPatch = {
+            firstName: currentUser.firstName || nameParts[0] || '',
+            lastName: currentUser.lastName || nameParts.slice(1).join(' '),
+            email: currentUser.email || user.email,
+            mobileCountryCode: currentUser.phoneCountryCode || '+61',
+            mobile: currentUser.phone || '',
+            jobTitle: currentUser.positionTitle || '',
+          };
+        }
+      } catch (error) {
+        console.error('Failed to hydrate wizard from session profile:', error);
+      }
+
+      setWizardData((prev) => ({
         ...prev,
         company: {
-          name: 'Your Company', // We don't have this in user object but it's fine
-          industry: 'Technology', // Default or fetch from profile
-          billingEmail: user.email,
-          country: 'Australia' // Default
+          ...prev.company,
+          ...companyPatch,
         },
         user: {
-          firstName: user.name.split(' ')[0],
-          lastName: user.name.split(' ').slice(1).join(' '),
-          email: user.email,
-          password: 'Password123!', // Dummy password to pass validation
-          confirmPassword: 'Password123!'
-        }
+          ...prev.user,
+          ...userPatch,
+        },
       }));
       setAuthorizedConfirmed(true);
       if (!existingJobId) {
         setCurrentStep(3); // Skip to Position step only for new jobs
       }
-    }
-  }, [isAuthenticated, user]);
+    };
+
+    void hydrateFromSession();
+  }, [isAuthenticated, user, existingJobId]);
   
   // Persist custom bundles to localStorage
   useEffect(() => {
@@ -375,24 +440,8 @@ const Wizard = () => {
         console.error('Upload failed:', uploadResponse.error);
       }
 
-      // Mock AI analysis - in production this would call an AI service to extract from the doc
-      // For now we still use mock data but the file IS uploaded to Cloudinary
-      const mockSkills = [
-        'Project Management',
-        'Communication',
-        'Problem Solving',
-        'Team Leadership',
-        'Stakeholder Management'
-      ];
-      
-      const mockResponsibilities = `• Lead and manage cross-functional project teams to deliver outcomes on time and within budget
-• Develop and maintain strong relationships with key stakeholders across the organization
-• Identify and mitigate project risks, escalating issues as appropriate
-• Prepare and present regular status reports to senior leadership
-• Drive continuous improvement initiatives within the team`;
-      
-      updatePosition('skills', mockSkills);
-      updatePosition('responsibilities', mockResponsibilities);
+      // Keep the uploaded description URL and let user edit fields manually until
+      // backend-side document parsing is enabled for this endpoint.
       setPdAnalyzed(true);
     } catch (error) {
       console.error('Error analyzing position description:', error);
@@ -632,6 +681,17 @@ const Wizard = () => {
     return [...bundleAssessments, ...wizardData.selectedAssessments];
   };
 
+  const resolveCheckoutPack = (): AssessmentPack | null => {
+    const selectedCount = getAllSelectedAssessments().length;
+    if (selectedCount <= 0) return selectedPack;
+
+    const sortedPacks = [...packCatalog].sort((a, b) => a.assessmentCount - b.assessmentCount);
+    const matched = sortedPacks.find((pack) => pack.assessmentCount >= selectedCount)
+      || sortedPacks[sortedPacks.length - 1]
+      || null;
+    return matched || selectedPack;
+  };
+
   const [isRegistering, setIsRegistering] = useState(false);
   const [isFinalizingPayment, setIsFinalizingPayment] = useState(false);
   const paymentFinalizeInFlightRef = useRef(false);
@@ -648,14 +708,18 @@ const Wizard = () => {
       return normalized || `assessment-${index + 1}`;
     };
 
-    const selectedAssessments = configuredAssessments
-      .slice(0, pack.assessmentCount)
-      .map((a, index) => ({
-        assessmentCatalogId: normalizeCatalogId(a.name, index),
-        name: a.name,
-        questionType: a.questionType || 'multiple-choice',
-        recommendedReason: a.reason,
-      }));
+    const selectedUiAssessments = getAllSelectedAssessments().slice(0, pack.assessmentCount);
+    const selectedAssessments = selectedUiAssessments.map((assessment, index) => {
+      const mappedType = aiRecommendations?.assessmentSpecificRecommendations?.[assessment.name]?.type;
+      const questionType = mappedType
+        || (assessment.category === 'skills' ? 'code-challenge' : 'multiple-choice');
+      return {
+        assessmentCatalogId: normalizeCatalogId(assessment.name, index),
+        name: assessment.name,
+        questionType,
+        recommendedReason: aiRecommendations?.assessmentSpecificRecommendations?.[assessment.name]?.reason,
+      };
+    });
 
     if (selectedAssessments.length === 0) {
       throw new Error('At least one assessment must be selected for the package');
@@ -769,20 +833,25 @@ const Wizard = () => {
     setRegistrationError(null);
 
     try {
-      if (!selectedPack) {
+      const selectedAssessments = getAllSelectedAssessments();
+      if (selectedAssessments.length === 0) {
+        throw new Error('Please select at least one assessment before completing order');
+      }
+
+      if (wizardData.candidates.length === 0) {
+        throw new Error('Please add at least one candidate before completing order');
+      }
+
+      const effectivePack = resolveCheckoutPack();
+      if (!effectivePack) {
         throw new Error('Please select an assessment package before completing order');
       }
 
       // If already authenticated, just create the job and proceed
       if (isAuthenticated) {
-          if (existingJobId && selectedPack) {
-               const checkout = await createAssessCheckoutFlow(existingJobId, selectedPack);
-               savePendingCheckout(checkout);
-               window.location.href = checkout.redirectUrl;
-               return;
-          }
-
-          const jobRes = await apiClient.createInternalJob({
+          let jobId = existingJobId || '';
+          if (!jobId) {
+            const jobRes = await apiClient.createInternalJob({
               title: wizardData.position.title || '',
               department: wizardData.position.department,
               location: wizardData.position.location,
@@ -793,20 +862,16 @@ const Wizard = () => {
               vacancies: wizardData.position.vacancies,
               requirements: wizardData.position.skills,
               responsibilities: wizardData.position.responsibilities ? [wizardData.position.responsibilities] : [],
-          });
-          
-          if (jobRes.success && jobRes.data && selectedPack) {
-              const checkout = await createAssessCheckoutFlow(jobRes.data.jobId, selectedPack);
-              savePendingCheckout(checkout);
-              window.location.href = checkout.redirectUrl;
-              return;
+            });
+            if (!jobRes.success || !jobRes.data?.jobId) {
+              throw new Error(jobRes.error || 'Unable to create role for checkout');
+            }
+            jobId = jobRes.data.jobId;
           }
 
-          toast({
-              title: 'Success!',
-              description: 'Job created and package activated successfully.',
-          });
-          navigate('/dashboard'); // fallback if checkout flow did not redirect
+          const checkout = await createAssessCheckoutFlow(jobId, effectivePack);
+          savePendingCheckout(checkout);
+          window.location.href = checkout.redirectUrl;
           return;
       }
 
@@ -863,20 +928,13 @@ const Wizard = () => {
           responsibilities: wizardData.position.responsibilities ? [wizardData.position.responsibilities] : [],
       });
 
-      if (jobRes.success && jobRes.data && selectedPack) {
-          const checkout = await createAssessCheckoutFlow(jobRes.data.jobId, selectedPack);
-          savePendingCheckout(checkout);
-          window.location.href = checkout.redirectUrl;
-          return;
+      if (!jobRes.success || !jobRes.data?.jobId) {
+        throw new Error(jobRes.error || 'Unable to create role for checkout');
       }
-      
-      // Registration successful, proceed to payment/success
-      toast({
-        title: 'Account Created!',
-        description: 'Your company account has been registered. Proceeding to payment...',
-      });
 
-      navigate('/dashboard');
+      const checkout = await createAssessCheckoutFlow(jobRes.data.jobId, effectivePack);
+      savePendingCheckout(checkout);
+      window.location.href = checkout.redirectUrl;
     } catch (error) {
       console.error('Registration error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Registration failed. Please try again.';
@@ -978,29 +1036,9 @@ const Wizard = () => {
 
   const handleContinue = async () => {
     if (currentStep === 3) {
-      // Create internal job and get AI recommendations when leaving Position step
+      // Get AI recommendations when leaving Position step.
       setIsAnalyzing(true);
       try {
-        // ONLY create internal job if user is already logged in
-        let jobId = '';
-        if (isAuthenticated) {
-            const jobRes = await apiClient.createInternalJob({
-              title: wizardData.position.title || '',
-              department: wizardData.position.department,
-              location: wizardData.position.location,
-              category: wizardData.position.category,
-              employmentType: wizardData.position.employmentType || 'full-time',
-              experienceLevel: wizardData.position.seniority,
-              workArrangement: wizardData.position.workArrangement,
-              vacancies: wizardData.position.vacancies,
-              requirements: wizardData.position.skills,
-              responsibilities: wizardData.position.responsibilities ? [wizardData.position.responsibilities] : [],
-            });
-            if (jobRes.success && jobRes.data) {
-                jobId = jobRes.data.jobId;
-            }
-        }
-
         // Fetch AI recommendations
         const response = await apiClient.getAIRecommendations({
           title: wizardData.position.title || '',
@@ -1031,7 +1069,7 @@ const Wizard = () => {
           setConfiguredAssessments(initialConfig);
 
           // Auto-select recommended pack
-          const recPack = assessmentPacks.find(p => p.id === response.data.recommendedPackId);
+          const recPack = packCatalog.find(p => p.id === response.data.recommendedPackId);
           if (recPack) setSelectedPack(recPack);
         }
       } catch (error) {
