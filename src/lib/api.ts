@@ -39,6 +39,7 @@ interface RegisterResponse {
     companyId: string;
     userId: string;
     email: string;
+    sessionId?: string;
     verificationRequired: boolean;
     message: string;
 }
@@ -68,9 +69,64 @@ interface UserData {
 
 class ApiClient {
     private baseURL: string;
+    private readonly assessSessionStorageKey = 'hrm8_assess_session_id';
 
     constructor(baseURL: string) {
         this.baseURL = baseURL;
+    }
+
+    private getStoredSessionId(): string | null {
+        if (typeof window === 'undefined') return null;
+        const value = window.localStorage.getItem(this.assessSessionStorageKey);
+        return value && value.trim() ? value : null;
+    }
+
+    private storeSessionId(sessionId?: string | null): void {
+        if (typeof window === 'undefined') return;
+        if (sessionId && sessionId.trim()) {
+            window.localStorage.setItem(this.assessSessionStorageKey, sessionId.trim());
+            return;
+        }
+        window.localStorage.removeItem(this.assessSessionStorageKey);
+    }
+
+    private persistSessionIdFromResponse(payload: unknown): void {
+        if (!payload || typeof payload !== 'object') return;
+        const root = payload as Record<string, unknown>;
+        const data = (root.data && typeof root.data === 'object') ? (root.data as Record<string, unknown>) : null;
+        const sessionId =
+            (typeof root.sessionId === 'string' && root.sessionId) ||
+            (data && typeof data.sessionId === 'string' ? data.sessionId : null);
+        if (sessionId) {
+            this.storeSessionId(sessionId);
+        }
+    }
+
+    private buildHeaders(extraHeaders?: HeadersInit, includeJsonContentType: boolean = true): Record<string, string> {
+        const headers: Record<string, string> = {};
+        if (includeJsonContentType) {
+            headers['Content-Type'] = 'application/json';
+        }
+
+        if (extraHeaders && !Array.isArray(extraHeaders) && !(extraHeaders instanceof Headers)) {
+            Object.assign(headers, extraHeaders as Record<string, string>);
+        } else if (Array.isArray(extraHeaders)) {
+            for (const [key, value] of extraHeaders) {
+                headers[key] = value;
+            }
+        } else if (extraHeaders instanceof Headers) {
+            extraHeaders.forEach((value, key) => {
+                headers[key] = value;
+            });
+        }
+
+        const headerKeys = new Set(Object.keys(headers).map((key) => key.toLowerCase()));
+        const sessionId = this.getStoredSessionId();
+        if (sessionId && !headerKeys.has('x-session-id')) {
+            headers['x-session-id'] = sessionId;
+        }
+
+        return headers;
     }
 
     private async request<T>(
@@ -81,16 +137,14 @@ class ApiClient {
 
         const config: RequestInit = {
             ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers,
-            },
+            headers: this.buildHeaders(options.headers),
             credentials: 'include', // Important for cookies
         };
 
         try {
             const response = await fetch(url, config);
             const data = await response.json();
+            this.persistSessionIdFromResponse(data);
 
             if (!response.ok) {
                 return {
@@ -191,9 +245,13 @@ class ApiClient {
     }
 
     async logout(): Promise<ApiResponse<{ message: string }>> {
-        return this.request<{ message: string }>('/api/assess/logout', {
+        const response = await this.request<{ message: string }>('/api/assess/logout', {
             method: 'POST',
         });
+        if (response.success) {
+            this.storeSessionId(null);
+        }
+        return response;
     }
 
     async getJobOptions(): Promise<ApiResponse<{
@@ -294,9 +352,11 @@ class ApiClient {
                 method: 'POST',
                 body: formData,
                 credentials: 'include',
+                headers: this.buildHeaders(undefined, false),
                 // Don't set Content-Type header - browser will set it with boundary
             });
             const data = await response.json();
+            this.persistSessionIdFromResponse(data);
 
             if (!response.ok) {
                 return {
@@ -389,8 +449,10 @@ class ApiClient {
                     method: 'POST',
                     body: formData,
                     credentials: 'include',
+                    headers: this.buildHeaders(undefined, false),
                 });
                 const responseData = await response.json();
+                this.persistSessionIdFromResponse(responseData);
                 if (!response.ok) {
                     return { success: false, error: responseData.error || 'Failed to add candidate' };
                 }
